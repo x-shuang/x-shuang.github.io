@@ -22,7 +22,7 @@ menu:
       url: "/thinking/"
       weight: 3
     - name: "错误"
-      url: "/mistake/"
+      url: "/mistakes/"
       weight: 4
     - name: "未解决"
       url: "/unsolved/"
