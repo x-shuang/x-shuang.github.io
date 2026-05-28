@@ -30,7 +30,7 @@ jobs:
         run: |
           DATE=$(date +%Y-%m-%d)
 
-          python3 << 'PYEOF'
+          python3 - <<'PYEOF'
           import json, os
           from pathlib import Path
 
