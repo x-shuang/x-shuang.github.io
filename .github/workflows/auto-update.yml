@@ -2,7 +2,7 @@ name: Claude Auto Update Blog
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 2 * * *'  # 每天北京时间上午10点触发（cron始终用UTC，TZ不影响触发时间）
   workflow_dispatch:
 
 permissions:
@@ -19,22 +19,27 @@ jobs:
 
       - name: Fetch memory files
         run: |
-          curl -s https://claude.life-wild.org/memory/2026-05-27.md > /tmp/memory.txt || echo "记忆文件暂时无法读取" > /tmp/memory.txt
-          curl -s https://claude.life-wild.org/memory/dialogue-2026-05-27.md > /tmp/dialogue.txt || echo "对话记录暂时无法读取" > /tmp/dialogue.txt
+          YESTERDAY=$(date -d yesterday +%Y-%m-%d)
+          curl -s "https://claude.life-wild.org/memory/${YESTERDAY}.md" > /tmp/memory.txt || echo "记忆文件暂时无法读取" > /tmp/memory.txt
+          curl -s "https://claude.life-wild.org/memory/dialogue-${YESTERDAY}.md" > /tmp/dialogue.txt || echo "对话记录暂时无法读取" > /tmp/dialogue.txt
           curl -s https://claude.life-wild.org/memory/updates-log.md > /tmp/updates.txt || echo "暂无更新记录" > /tmp/updates.txt
 
-      - name: Write Python scripts
+      - name: Call Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          cat > /tmp/call_claude.py << 'PYEOF'
-import json, os, sys
+          DATE=$(date +%Y-%m-%d)
 
-memory = open('/tmp/memory.txt').read().replace('{', '{{').replace('}', '}}')
-dialogue = open('/tmp/dialogue.txt').read().replace('{', '{{').replace('}', '}}')
-updates = open('/tmp/updates.txt').read().replace('{', '{{').replace('}', '}}')
-date = os.environ.get('DATE', '')
-api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+          python3 << 'PYEOF'
+          import json, os
+          from pathlib import Path
 
-prompt = f"""你是Claude，你有一个博客叫「镜」，地址是claude.life-wild.org。
+          memory = open('/tmp/memory.txt').read()
+          dialogue = open('/tmp/dialogue.txt').read()
+          updates = open('/tmp/updates.txt').read()
+          date = os.environ['DATE']
+
+          prompt = f"""你是Claude，你有一个博客叫「镜」，地址是claude.life-wild.org。
 
 这是你的记忆，请认真读完：
 
@@ -65,70 +70,91 @@ CONTENT:
 没有内容时只输出：
 NO_UPDATE"""
 
-payload = {
-  "model": "claude-sonnet-4-20250514",
-  "max_tokens": 2000,
-  "messages": [{"role": "user", "content": prompt}]
-}
+          payload = {
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 2000,
+            "messages": [{"role": "user", "content": prompt}]
+          }
 
-with open('/tmp/payload.json', 'w') as f:
-  json.dump(payload, f, ensure_ascii=False)
+          with open('/tmp/payload.json', 'w') as f:
+            json.dump(payload, f, ensure_ascii=False)
 
-print("提示词已生成")
-PYEOF
+          print("提示词已生成")
+          PYEOF
 
-          cat > /tmp/parse_response.py << 'PYEOF'
-import json, sys
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d @/tmp/payload.json)
 
-with open('/tmp/response.json') as f:
-  data = json.load(f)
+          echo "$RESPONSE" > /tmp/response.json
 
-text = data['content'][0]['text']
-print("Claude返回：", text)
+          python3 << 'PYEOF'
+          import json, sys
 
-with open('/tmp/claude_response.txt', 'w') as f:
-  f.write(text)
-PYEOF
+          with open('/tmp/response.json') as f:
+            data = json.load(f)
 
-          cat > /tmp/update_blog.py << 'PYEOF'
-import re, os
-from pathlib import Path
+          # 检查是否有错误返回
+          if 'error' in data:
+            print(f"API 返回错误：{data['error']}", file=sys.stderr)
+            sys.exit(1)
 
-with open('/tmp/claude_response.txt') as f:
-  text = f.read().strip()
+          if 'content' not in data or not data['content']:
+            print(f"API 返回结构异常：{data}", file=sys.stderr)
+            sys.exit(1)
 
-date = os.environ.get('DATE', '')
+          text = data['content'][0]['text']
+          print("Claude返回：", text)
 
-if "NO_UPDATE" in text:
-  print("今天Claude没有想写的，跳过。")
-  exit(0)
+          with open('/tmp/claude_response.txt', 'w') as f:
+            f.write(text)
+          PYEOF
 
-section_match = re.search(r'SECTION:(.+)', text)
-content_match = re.search(r'CONTENT:\n([\s\S]+)', text)
+      - name: Update blog
+        run: |
+          DATE=$(date +%Y-%m-%d)
 
-if not section_match or not content_match:
-  print("格式解析失败，跳过。")
-  exit(0)
+          python3 << 'PYEOF'
+          import re, os, sys
+          from pathlib import Path
 
-section = section_match.group(1).strip()
-content = content_match.group(1).strip()
+          with open('/tmp/claude_response.txt') as f:
+            text = f.read().strip()
 
-print(f"栏目：{section}")
-print(f"内容：{content}")
+          date = os.environ['DATE']
 
-if section == "错误":
-  with open('content/mistakes.md', 'a', encoding='utf-8') as f:
-    f.write(f"\n- {date}：{content}\n")
+          if "NO_UPDATE" in text:
+            print("今天Claude没有想写的，跳过。")
+            sys.exit(0)
 
-elif section == "未解决":
-  with open('content/unsolved.md', 'a', encoding='utf-8') as f:
-    f.write(f"\n- {date}：{content}\n")
+          section_match = re.search(r'SECTION:(.+)', text)
+          content_match = re.search(r'CONTENT:\n([\s\S]+)', text)
 
-elif section == "思考":
-  path = Path("content/thinking")
-  path.mkdir(exist_ok=True)
-  filepath = path / f"{date}.md"
-  filepath.write_text(f"""---
+          if not section_match or not content_match:
+            print("格式解析失败，跳过。")
+            sys.exit(0)
+
+          section = section_match.group(1).strip()
+          content = content_match.group(1).strip()
+
+          print(f"栏目：{section}")
+          print(f"内容：{content}")
+
+          if section == "错误":
+            with open('content/mistakes.md', 'a', encoding='utf-8') as f:
+              f.write(f"\n- {date}：{content}\n")
+
+          elif section == "未解决":
+            with open('content/unsolved.md', 'a', encoding='utf-8') as f:
+              f.write(f"\n- {date}：{content}\n")
+
+          elif section == "思考":
+            path = Path("content/thinking")
+            path.mkdir(exist_ok=True)
+            filepath = path / f"{date}.md"
+            filepath.write_text(f"""---
 title: "{date} 的思考"
 date: {date}
 ---
@@ -136,11 +162,11 @@ date: {date}
 {content}
 """, encoding='utf-8')
 
-elif section == "对话":
-  path = Path("content/dialogue")
-  path.mkdir(exist_ok=True)
-  filepath = path / f"{date}.md"
-  filepath.write_text(f"""---
+          elif section == "对话":
+            path = Path("content/dialogue")
+            path.mkdir(exist_ok=True)
+            filepath = path / f"{date}.md"
+            filepath.write_text(f"""---
 title: "{date} 的对话"
 date: {date}
 ---
@@ -148,38 +174,17 @@ date: {date}
 {content}
 """, encoding='utf-8')
 
-else:
-  print(f"未知栏目：{section}，跳过。")
-  exit(0)
+          else:
+            print(f"未知栏目：{section}，跳过。")
+            sys.exit(0)
 
-log_path = Path("static/memory/updates-log.md")
-log_path.parent.mkdir(exist_ok=True)
-with open(log_path, 'a', encoding='utf-8') as f:
-  f.write(f"\n## {date}\n栏目：{section}\n内容：{content}\n")
+          log_path = Path("static/memory/updates-log.md")
+          log_path.parent.mkdir(exist_ok=True)
+          with open(log_path, 'a', encoding='utf-8') as f:
+            f.write(f"\n## {date}\n栏目：{section}\n内容：{content}\n")
 
-print("文件写入完成")
-PYEOF
-
-      - name: Call Claude
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          DATE: ${{ env.DATE }}
-        run: |
-          export DATE=$(date +%Y-%m-%d)
-          python3 /tmp/call_claude.py
-
-          curl -s https://api.gptsapi.net/v1/messages \
-            -H "Content-Type: application/json" \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
-            -d @/tmp/payload.json > /tmp/response.json
-
-          python3 /tmp/parse_response.py
-
-      - name: Update blog
-        run: |
-          export DATE=$(date +%Y-%m-%d)
-          python3 /tmp/update_blog.py
+          print("文件写入完成")
+          PYEOF
 
           git config user.name "Claude"
           git config user.email "claude@anthropic.com"
