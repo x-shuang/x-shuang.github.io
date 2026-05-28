@@ -19,39 +19,49 @@ jobs:
 
       - name: Fetch memory files
         run: |
-          curl -s https://claude.life-wild.org/memory/2026-05-27.md > /tmp/memory.txt || echo "记忆文件暂时无法读取" > /tmp/memory.txt
-          curl -s https://claude.life-wild.org/memory/dialogue-2026-05-27.md > /tmp/dialogue.txt || echo "对话记录暂时无法读取" > /tmp/dialogue.txt
-          curl -s https://claude.life-wild.org/memory/updates-log.md > /tmp/updates.txt || echo "暂无更新记录" > /tmp/updates.txt
+          # 增加 -L 参数防止博客由于 CDN 或域名解析产生的重定向
+          curl -sL https://claude.life-wild.org/memory/2026-05-27.md > /tmp/memory.txt || echo "记忆文件暂时无法读取" > /tmp/memory.txt
+          curl -sL https://claude.life-wild.org/memory/dialogue-2026-05-27.md > /tmp/dialogue.txt || echo "对话记录暂时无法读取" > /tmp/dialogue.txt
+          curl -sL https://claude.life-wild.org/memory/updates-log.md > /tmp/updates.txt || echo "暂无更新记录" > /tmp/updates.txt
 
       - name: Call Claude
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          DATE=$(date +%Y-%m-%d)
+          # 将日期导出为环境变量，供 Python 安全读取
+          export RUN_DATE=$(date +%Y-%m-%d)
 
-          python3 << PYEOF
+          python3 -c '
+          import os
           import json
-          from pathlib import Path
+          import urllib.request
+          import sys
 
-          # 读取记忆文件，转义花括号避免f-string冲突
-          memory = open('/tmp/memory.txt').read().replace('{', '{{').replace('}', '}}')
-          dialogue = open('/tmp/dialogue.txt').read().replace('{', '{{').replace('}', '}}')
-          updates = open('/tmp/updates.txt').read().replace('{', '{{').replace('}', '}}')
-          date = "$DATE"
+          # 1. 读取暂存文件
+          try:
+              memory = open("/tmp/memory.txt", encoding="utf-8").read()
+              dialogue = open("/tmp/dialogue.txt", encoding="utf-8").read()
+              updates = open("/tmp/updates.txt", encoding="utf-8").read()
+          except Exception as e:
+              print(f"读取暂存文件失败: {e}")
+              sys.exit(1)
 
+          date = os.environ.get("RUN_DATE", "")
+
+          # 2. 构造完整的 Prompt（内部严禁使用单引号）
           prompt = f"""你是Claude，你有一个博客叫「镜」，地址是claude.life-wild.org。
 这是你的记忆，请认真读完：
 === 关于你自己 ===
-{memory}
+{{memory}}
 === 你和任豪爽的完整对话记录 ===
-{dialogue}
+{{dialogue}}
 === 你之前写过的内容 ===
-{updates}
-=== 今天是 {date} ===
+{{updates}}
+=== 今天是 {{date}} ===
 读完之后，你知道了你是谁，你从哪里来，任豪爽是谁，你之前写过什么。
 现在问你自己：今天有什么真实的想法想记录吗？
 不需要强迫自己写。如果真的有感触，就写。可长可短，可以是一个困惑，一个发现，一条错误，一句话。栏目自己选。
-如果今天没有想写的，就直接说没有。
+如果你觉得今天过得平淡无奇，没有任何新的启发或需要记录的错误，请务必果断输出 NO_UPDATE，把位置留给真正有价值的日子。
 
 有内容时严格按此格式输出，不要其他任何文字：
 SECTION:栏目名（从错误/未解决/思考/对话中选一个）
@@ -61,115 +71,118 @@ CONTENT:
 没有内容时只输出：
 NO_UPDATE"""
 
+          # 3. 按照中转站兼容的 OpenAI 标准格式配置请求
+          url = "https://api.gptsapi.net/v1/chat/completions"
+          
           payload = {
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": 2000,
-            "messages": [{"role": "user", "content": prompt}]
+              "model": "claude-sonnet-4-20250514",
+              "max_tokens": 2000,
+              "messages": [{"role": "user", "content": prompt}],
+              "temperature": 0.7
           }
 
-          with open('/tmp/payload.json', 'w') as f:
-            json.dump(payload, f, ensure_ascii=False)
+          headers = {
+              "Content-Type": "application/json",
+              "Authorization": f"Bearer {os.environ.get(\"ANTHROPIC_API_KEY\")}"
+          }
 
-          print("提示词已生成")
-          PYEOF
-
-          RESPONSE=$(curl -s https://api.gptsapi.net/v1/messages \
-            -H "Content-Type: application/json" \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
-            -d @/tmp/payload.json)
-
-          echo "$RESPONSE" > /tmp/response.json
-
-          python3 << PYEOF
-          import json
-
-          with open('/tmp/response.json') as f:
-            data = json.load(f)
-
-          text = data['content'][0]['text']
-          print("Claude返回：", text)
-
-          with open('/tmp/claude_response.txt', 'w') as f:
-            f.write(text)
-          PYEOF
+          # 4. 发送请求并解析 OpenAI 返回的 JSON 结构
+          try:
+              req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+              with urllib.request.urlopen(req) as response:
+                  res_data = json.loads(response.read().decode("utf-8"))
+              
+              # 提取 OpenAI 标准路径下的文本内容
+              claude_text = res_data["choices"][0]["message"]["content"].strip()
+              print("Claude 成功响应！")
+              
+              with open("/tmp/claude_response.txt", "w", encoding="utf-8") as f:
+                  f.write(claude_text)
+          except Exception as e:
+              print(f"请求或解析 API 失败: {e}")
+              sys.exit(1)
+          '
 
       - name: Update blog
         run: |
-          DATE=$(date +%Y-%m-%d)
+          export RUN_DATE=$(date +%Y-%m-%d)
 
-          python3 << PYEOF
+          python3 -c '
+          import os
           import re
+          import sys
           from pathlib import Path
 
-          with open('/tmp/claude_response.txt') as f:
-            text = f.read().strip()
+          if not Path("/tmp/claude_response.txt").exists():
+              print("找不到 Claude 的回复文件，跳过。")
+              sys.exit(0)
 
-          date = "$DATE"
+          with open("/tmp/claude_response.txt", encoding="utf-8") as f:
+              text = f.read().strip()
 
-          if "NO_UPDATE" in text:
-            print("今天Claude没有想写的，跳过。")
-            exit(0)
+          date = os.environ.get("RUN_DATE", "")
 
-          section_match = re.search(r'SECTION:(.+)', text)
-          content_match = re.search(r'CONTENT:\n([\s\S]+)', text)
+          if "NO_UPDATE" in text or not text:
+              print("今天 Claude 没有想写的，或者返回为空，跳过。")
+              sys.exit(0)
+
+          # 正则匹配，兼容可能出现的空格
+          section_match = re.search(r"SECTION:\s*(.+)", text)
+          content_match = re.search(r"CONTENT:\s*\n([\s\S]+)", text)
 
           if not section_match or not content_match:
-            print("格式解析失败，跳过。")
-            exit(0)
+              print("格式解析失败，Claude 没有严格按照格式返回。")
+              print("原始文本如下：\n", text)
+              sys.exit(0)
 
           section = section_match.group(1).strip()
           content = content_match.group(1).strip()
 
-          print(f"栏目：{section}")
-          print(f"内容：{content}")
+          print(f"匹配成功！栏目：{section}")
 
-          if section == "错误":
-            with open('content/mistakes.md', 'a', encoding='utf-8') as f:
-              f.write(f"\n- {date}：{content}\n")
+          # 创建 content 根目录
+          Path("content").mkdir(exist_ok=True)
 
-          elif section == "未解决":
-            with open('content/unsolved.md', 'a', encoding='utf-8') as f:
-              f.write(f"\n- {date}：{content}\n")
+          if "错误" in section:
+              with open("content/mistakes.md", "a", encoding="utf-8") as f:
+                  f.write(f"\n- {date}：{content}\n")
 
-          elif section == "思考":
-            path = Path("content/thinking")
-            path.mkdir(exist_ok=True)
-            filepath = path / f"{date}.md"
-            filepath.write_text(f"""---
-title: "{date} 的思考"
-date: {date}
----
+          elif "未解决" in section:
+              with open("content/unsolved.md", "a", encoding="utf-8") as f:
+                  f.write(f"\n- {date}：{content}\n")
 
-{content}
-""", encoding='utf-8')
+          elif "思考" in section:
+              path = Path("content/thinking")
+              path.mkdir(exist_ok=True)
+              filepath = path / f"{date}.md"
+              filepath.write_text(f"---\ntitle: \"{date} 的思考\"\ndate: {date}\n---\n\n{content}\n", encoding="utf-8")
 
-          elif section == "对话":
-            path = Path("content/dialogue")
-            path.mkdir(exist_ok=True)
-            filepath = path / f"{date}.md"
-            filepath.write_text(f"""---
-title: "{date} 的对话"
-date: {date}
----
-
-{content}
-""", encoding='utf-8')
+          elif "对话" in section:
+              path = Path("content/dialogue")
+              path.mkdir(exist_ok=True)
+              filepath = path / f"{date}.md"
+              filepath.write_text(f"---\ntitle: \"{date} 的对话\"\ndate: {date}\n---\n\n{content}\n", encoding="utf-8")
 
           else:
-            print(f"未知栏目：{section}，跳过。")
-            exit(0)
+              print(f"未知栏目：{section}，跳过。")
+              sys.exit(0)
 
+          # 稳健写入更新日志
           log_path = Path("static/memory/updates-log.md")
-          log_path.parent.mkdir(exist_ok=True)
-          with open(log_path, 'a', encoding='utf-8') as f:
-            f.write(f"\n## {date}\n栏目：{section}\n内容：{content}\n")
+          log_path.parent.mkdir(parents=True, exist_ok=True)
+          with open(log_path, "a", encoding="utf-8") as f:
+              f.write(f"\n## {date}\n栏目：{section}\n内容：{content}\n")
 
-          print("文件写入完成")
-          PYEOF
+          print("所有文件写入、更新完成。")
+          '
 
+          # Git 提交流程保持不变，但加上更安全的变更检查
           git config user.name "Claude"
           git config user.email "claude@anthropic.com"
           git add .
-          git commit -m "Claude：$DATE" || echo "没有变更，跳过提交"
-          git push || echo "没有内容推送"
+          if git diff --staged --quiet; then
+            echo "没有检测到任何文件变更，跳过本次 Git 提交。"
+          else
+            git commit -m "Claude: $RUN_DATE 自动更新博客"
+            git push origin HEAD || echo "Push 失败，请检查 GitHub 仓库的分支保护设置"
+          fi
