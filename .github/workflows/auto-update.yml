@@ -2,7 +2,7 @@ name: Claude Auto Update Blog
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # 每天北京时间上午10点触发（cron始终用UTC，TZ不影响触发时间）
+    - cron: '0 2 * * *'
   workflow_dispatch:
 
 permissions:
@@ -20,17 +20,18 @@ jobs:
       - name: Fetch memory files
         run: |
           YESTERDAY=$(date -d yesterday +%Y-%m-%d)
-          curl -s "https://claude.life-wild.org/memory/${YESTERDAY}.md" > /tmp/memory.txt || echo "记忆文件暂时无法读取" > /tmp/memory.txt
-          curl -s "https://claude.life-wild.org/memory/dialogue-${YESTERDAY}.md" > /tmp/dialogue.txt || echo "对话记录暂时无法读取" > /tmp/dialogue.txt
-          curl -s https://claude.life-wild.org/memory/updates-log.md > /tmp/updates.txt || echo "暂无更新记录" > /tmp/updates.txt
+
+          curl -sf "https://claude.life-wild.org/memory/${YESTERDAY}.md" -o /tmp/memory.txt || echo "记忆文件暂时无法读取" > /tmp/memory.txt
+          curl -sf "https://claude.life-wild.org/memory/dialogue-${YESTERDAY}.md" -o /tmp/dialogue.txt || echo "对话记录暂时无法读取" > /tmp/dialogue.txt
+          curl -sf "https://claude.life-wild.org/memory/updates-log.md" -o /tmp/updates.txt || echo "暂无更新记录" > /tmp/updates.txt
 
       - name: Call Claude
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          DATE=$(date +%Y-%m-%d)
+          export DATE=$(date +%Y-%m-%d)
 
-          python3 - <<'PYEOF'
+          python3 << 'PYEOF'
           import json, os
           from pathlib import Path
 
@@ -96,7 +97,6 @@ NO_UPDATE"""
           with open('/tmp/response.json') as f:
             data = json.load(f)
 
-          # 检查是否有错误返回
           if 'error' in data:
             print(f"API 返回错误：{data['error']}", file=sys.stderr)
             sys.exit(1)
@@ -105,7 +105,12 @@ NO_UPDATE"""
             print(f"API 返回结构异常：{data}", file=sys.stderr)
             sys.exit(1)
 
-          text = data['content'][0]['text']
+          text_parts = []
+          for item in data.get("content", []):
+            if item.get("type") == "text":
+              text_parts.append(item.get("text", ""))
+
+          text = "\n".join(text_parts)
           print("Claude返回：", text)
 
           with open('/tmp/claude_response.txt', 'w') as f:
@@ -114,7 +119,7 @@ NO_UPDATE"""
 
       - name: Update blog
         run: |
-          DATE=$(date +%Y-%m-%d)
+          export DATE=$(date +%Y-%m-%d)
 
           python3 << 'PYEOF'
           import re, os, sys
@@ -125,7 +130,7 @@ NO_UPDATE"""
 
           date = os.environ['DATE']
 
-          if "NO_UPDATE" in text:
+          if text.strip() == "NO_UPDATE":
             print("今天Claude没有想写的，跳过。")
             sys.exit(0)
 
@@ -180,6 +185,7 @@ date: {date}
 
           log_path = Path("static/memory/updates-log.md")
           log_path.parent.mkdir(exist_ok=True)
+
           with open(log_path, 'a', encoding='utf-8') as f:
             f.write(f"\n## {date}\n栏目：{section}\n内容：{content}\n")
 
@@ -189,5 +195,5 @@ date: {date}
           git config user.name "Claude"
           git config user.email "claude@anthropic.com"
           git add .
-          git commit -m "Claude：$DATE" || echo "没有变更，跳过提交"
+          git commit -m "Claude: $DATE" || echo "没有变更，跳过提交"
           git push || echo "没有内容推送"
