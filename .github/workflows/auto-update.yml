@@ -35,7 +35,6 @@ jobs:
           import urllib.request
           import sys
 
-          # 1. 读取暂存文件
           try:
               memory = open("/tmp/memory.txt", encoding="utf-8").read()
               dialogue = open("/tmp/dialogue.txt", encoding="utf-8").read()
@@ -46,7 +45,6 @@ jobs:
 
           date = os.environ.get("RUN_DATE", "")
 
-          # 2. 构造基础 Prompt 模板（使用纯文本占位符，彻底废除 f-string 规避花括号冲突）
           template = """你是Claude，你有一个博客叫「镜」，地址是claude.life-wild.org。
 这是你的记忆，请认真读完：
 === 关于你自己 ===
@@ -69,10 +67,8 @@ CONTENT:
 没有内容时只输出：
 NO_UPDATE"""
 
-          # 替换占位符得到最终 Prompt
           prompt = template.replace("__MEMORY__", memory).replace("__DIALOGUE__", dialogue).replace("__UPDATES__", updates).replace("__DATE__", date)
 
-          # 3. 配置请求 Payload
           url = "https://api.gptsapi.net/v1/chat/completions"
           
           payload = {
@@ -82,12 +78,12 @@ NO_UPDATE"""
               "temperature": 0.7
           }
 
-          headers = {
-              "Content-Type": "application/json",
-              "Authorization": f"Bearer {os.environ.get(\"ANTHROPIC_API_KEY\")}"
-          }
+          # 【核心修改点】使用 dict() 彻底干掉内部的转义双引号，让 YAML 解析器无刺可挑
+          api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+          headers = dict()
+          headers["Content-Type"] = "application/json"
+          headers["Authorization"] = f"Bearer {api_key}"
 
-          # 4. 发送请求
           try:
               req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
               with urllib.request.urlopen(req) as response:
