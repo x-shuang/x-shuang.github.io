@@ -3,6 +3,7 @@ import re
 import sys
 import json
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 def main():
@@ -57,11 +58,14 @@ NO_UPDATE"""
         "temperature": 0.7
     }
     
+    # 增加 User-Agent，抹除 Python-urllib 机器人特征，伪装成普通浏览器
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
+    # 5. 精准捕获 403 异常诊断块
     try:
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
         with urllib.request.urlopen(req) as response:
@@ -69,11 +73,23 @@ NO_UPDATE"""
         
         text = res_data["choices"][0]["message"]["content"].strip()
         print("Claude 成功响应！")
+        
+    except urllib.error.HTTPError as e:
+        print(f"\n❌ API 请求触发 HTTP 错误！状态码: {e.code}")
+        print(f"错误原因 (Reason): {e.reason}")
+        try:
+            # 核心读取：提取服务器返回的真实拒绝原因
+            error_body = e.read().decode("utf-8")
+            print(f"📄 服务器原始错误响应内容:\n{error_body}\n")
+        except Exception as read_err:
+            print(f"无法读取详细的错误响应体: {read_err}")
+        sys.exit(1)
+        
     except Exception as e:
-        print(f"请求或解析 API 失败: {e}")
+        print(f"\n❌ 其他网络或解析异常: {e}")
         sys.exit(1)
 
-    # 5. 处理内容更新逻辑
+    # 6. 处理内容更新逻辑
     if "NO_UPDATE" in text or not text:
         print("今天 Claude 没有想写的，或者返回为空，跳过。")
         sys.exit(0)
