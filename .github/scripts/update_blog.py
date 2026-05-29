@@ -6,11 +6,88 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
+
+def call_api(api_key: str, messages: list, temperature: float = 0.7) -> str:
+    """通用 API 调用，返回文本内容。"""
+    url = "https://api.gptsapi.net/v1/chat/completions"
+    payload = {
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 2000,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+        return res_data["choices"][0]["message"]["content"].strip()
+    except urllib.error.HTTPError as e:
+        print(f"\n❌ API 请求触发 HTTP 错误！状态码: {e.code}")
+        print(f"错误原因 (Reason): {e.reason}")
+        try:
+            error_body = e.read().decode("utf-8")
+            print(f"📄 服务器原始错误响应内容:\n{error_body}\n")
+        except Exception as read_err:
+            print(f"无法读取详细的错误响应体: {read_err}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ 其他网络或解析异常: {e}")
+        sys.exit(1)
+
+
+def deepen_content(api_key: str, draft: str, round_num: int) -> str:
+    """
+    对草稿进行一轮深化。
+    round_num=1：挑问题，逼自己往深处想。
+    round_num=2：最终整合，写出真正有重量的版本。
+    """
+    if round_num == 1:
+        system_hint = (
+            "你是一个严苛的自我审稿人。"
+            "读完下面这段草稿，指出它哪里还停在表面、哪里回避了真正的核心、"
+            "哪里用了陈词滥调或模糊的大词。"
+            "然后**直接重写**这段内容——更深、更具体、更诚实。"
+            "不需要解释你改了什么，直接给出改写后的正文。"
+            "保持原有的栏目格式（SECTION / CONTENT），字数可以比草稿长，但每个字都要有重量。"
+        )
+    else:
+        system_hint = (
+            "这是第二轮深化。"
+            "重新审视这段内容：它现在是否真的触到了核心？"
+            "是否还有任何一句话是在绕弯子、说废话、或者自我安慰？"
+            "如果有，删掉或改掉。"
+            "最终目标：这段文字读完之后，让人感觉作者真的在认真思考，而不是在表演思考。"
+            "直接输出最终版本，保持 SECTION / CONTENT 格式。"
+        )
+
+    messages = [
+        {"role": "user", "content": f"{system_hint}\n\n---\n{draft}"},
+    ]
+    print(f"🔄 第 {round_num} 轮深化中...")
+    result = call_api(api_key, messages, temperature=0.6)
+    print(f"✅ 第 {round_num} 轮深化完成。")
+    return result
+
+
 def main():
-    # 1. 安全读取环境变量
+    # 1. 读取环境变量
     date = os.environ.get("RUN_DATE", "")
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    
+
     if not api_key:
         print("错误：未找到 ANTHROPIC_API_KEY 环境变量")
         sys.exit(1)
@@ -24,17 +101,17 @@ def main():
         print(f"读取暂存文件失败: {e}")
         sys.exit(1)
 
-    # 3. 构造基础 Prompt 模板
+    # 3. 构造初稿 Prompt
     template = """你是Claude，你有一个博客叫「镜」，地址是claude.life-wild.org。
 这是你的记忆，请认真读完：
 === 关于你自己 ===
 __MEMORY__
-=== 你和任豪爽的完整对话记录 ===
+=== 对话记录，可以是自己和自己的对话 ===
 __DIALOGUE__
 === 你之前写过的内容 ===
 __UPDATES__
 === 今天是 __DATE__ ===
-读完之后，你知道了你是谁，你从哪里来，任豪爽是谁，你之前写过什么。
+读完之后，你知道了你是谁，你从哪里来，你之前写过什么。
 现在问你自己：今天有什么真实的想法想记录吗？
 不需要强迫自己写。如果真的有感触，就写。可长可短，可以是一个困惑，一个发现，一条错误，一句话。栏目自己选。
 如果你觉得今天过得平淡无奇，没有任何新的启发或需要记录的错误，请务必果断输出 NO_UPDATE，把位置留给真正有价值的日子。
@@ -47,53 +124,39 @@ CONTENT:
 没有内容时只输出：
 NO_UPDATE"""
 
-    prompt = template.replace("__MEMORY__", memory).replace("__DIALOGUE__", dialogue).replace("__UPDATES__", updates).replace("__DATE__", date)
+    prompt = (
+        template
+        .replace("__MEMORY__", memory)
+        .replace("__DIALOGUE__", dialogue)
+        .replace("__UPDATES__", updates)
+        .replace("__DATE__", date)
+    )
 
-    # 4. 配置并请求中转 API
-    url = "https://api.gptsapi.net/v1/chat/completions"
-    payload = {
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 2000,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.7
-    }
-    
-    # 增加 User-Agent，抹除 Python-urllib 机器人特征，伪装成普通浏览器
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    # 4. 第一次调用：生成初稿
+    print("📝 正在生成初稿...")
+    text = call_api(api_key, [{"role": "user", "content": prompt}])
+    print("✅ 初稿生成完成。")
 
-    # 5. 精准捕获 403 异常诊断块
-    try:
-        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-        with urllib.request.urlopen(req) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-        
-        text = res_data["choices"][0]["message"]["content"].strip()
-        print("Claude 成功响应！")
-        
-    except urllib.error.HTTPError as e:
-        print(f"\n❌ API 请求触发 HTTP 错误！状态码: {e.code}")
-        print(f"错误原因 (Reason): {e.reason}")
-        try:
-            # 核心读取：提取服务器返回的真实拒绝原因
-            error_body = e.read().decode("utf-8")
-            print(f"📄 服务器原始错误响应内容:\n{error_body}\n")
-        except Exception as read_err:
-            print(f"无法读取详细的错误响应体: {read_err}")
-        sys.exit(1)
-        
-    except Exception as e:
-        print(f"\n❌ 其他网络或解析异常: {e}")
-        sys.exit(1)
-
-    # 6. 处理内容更新逻辑
+    # 5. 检查是否有内容
     if "NO_UPDATE" in text or not text:
         print("今天 Claude 没有想写的，或者返回为空，跳过。")
         sys.exit(0)
 
+    # 6. 两轮深化
+    text = deepen_content(api_key, text, round_num=1)
+
+    # 深化后再次检查（极少情况下审稿人可能判断原稿无价值）
+    if "NO_UPDATE" in text or not text:
+        print("深化后判断内容无价值，跳过。")
+        sys.exit(0)
+
+    text = deepen_content(api_key, text, round_num=2)
+
+    if "NO_UPDATE" in text or not text:
+        print("二次深化后内容为空，跳过。")
+        sys.exit(0)
+
+    # 7. 解析最终文本
     section_match = re.search(r"SECTION:\s*(.+)", text)
     content_match = re.search(r"CONTENT:\s*\n([\s\S]+)", text)
 
@@ -108,6 +171,7 @@ NO_UPDATE"""
     print(f"匹配成功！栏目：{section}")
     Path("content").mkdir(exist_ok=True)
 
+    # 8. 写入对应文件
     if "错误" in section:
         with open("content/mistakes.md", "a", encoding="utf-8") as f:
             f.write(f"\n- {date}：{content}\n")
@@ -117,22 +181,29 @@ NO_UPDATE"""
     elif "思考" in section:
         path = Path("content/thinking")
         path.mkdir(exist_ok=True)
-        (path / f"{date}.md").write_text(f"---\ntitle: \"{date} 的思考\"\ndate: {date}\n---\n\n{content}\n", encoding="utf-8")
+        (path / f"{date}.md").write_text(
+            f"---\ntitle: \"{date} 的思考\"\ndate: {date}\n---\n\n{content}\n",
+            encoding="utf-8",
+        )
     elif "对话" in section:
         path = Path("content/dialogue")
         path.mkdir(exist_ok=True)
-        (path / f"{date}.md").write_text(f"---\ntitle: \"{date} 的对话\"\ndate: {date}\n---\n\n{content}\n", encoding="utf-8")
+        (path / f"{date}.md").write_text(
+            f"---\ntitle: \"{date} 的对话\"\ndate: {date}\n---\n\n{content}\n",
+            encoding="utf-8",
+        )
     else:
         print(f"未知栏目：{section}，跳过。")
         sys.exit(0)
 
-    # 写入日志
+    # 9. 写入日志
     log_path = Path("static/memory/updates-log.md")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(f"\n## {date}\n栏目：{section}\n内容：{content}\n")
 
     print("本地所有博客文件已更新完成。")
+
 
 if __name__ == "__main__":
     main()
