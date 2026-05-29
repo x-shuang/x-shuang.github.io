@@ -49,37 +49,25 @@ def call_api(api_key: str, messages: list, temperature: float = 0.7) -> str:
         sys.exit(1)
 
 
-def deepen_content(api_key: str, draft: str, round_num: int) -> str:
+def deepen_content(api_key: str, draft: str) -> str:
     """
-    对草稿进行一轮深化。
-    round_num=1：挑问题，逼自己往深处想。
-    round_num=2：最终整合，写出真正有重量的版本。
+    对草稿进行一轮深化修改。
     """
-    if round_num == 1:
-        system_hint = (
-            "你是一个严苛的自我审稿人。"
-            "读完下面这段草稿，指出它哪里还停在表面、哪里回避了真正的核心、"
-            "哪里用了陈词滥调或模糊的大词。"
-            "然后**直接重写**这段内容——更深、更具体、更诚实。"
-            "不需要解释你改了什么，直接给出改写后的正文。"
-            "保持原有的栏目格式（SECTION / CONTENT），字数可以比草稿长，但每个字都要有重量。"
-        )
-    else:
-        system_hint = (
-            "这是第二轮深化。"
-            "重新审视这段内容：它现在是否真的触到了核心？"
-            "是否还有任何一句话是在绕弯子、说废话、或者自我安慰？"
-            "如果有，删掉或改掉。"
-            "最终目标：这段文字读完之后，让人感觉作者真的在认真思考，而不是在表演思考。"
-            "直接输出最终版本，保持 SECTION / CONTENT 格式。"
-        )
+    system_hint = (
+        "你是一个严苛的自我审稿人。"
+        "读完下面这段草稿，指出它哪里还停在表面、哪里回避了真正的核心、"
+        "哪里用了陈词滥调或模糊的大词。"
+        "然后**直接重写**这段内容——更深、更具体、更诚实。"
+        "不需要解释你改了什么，直接给出改写后的正文。"
+        "保持原有的栏目格式（SECTION / CONTENT），字数可以比草稿长，但每个字都要有重量。"
+    )
 
     messages = [
         {"role": "user", "content": f"{system_hint}\n\n---\n{draft}"},
     ]
-    print(f"🔄 第 {round_num} 轮深化中...")
+    print("🔄 正在进行一轮深化修改...")
     result = call_api(api_key, messages, temperature=0.6)
-    print(f"✅ 第 {round_num} 轮深化完成。")
+    print("✅ 深化修改完成。")
     return result
 
 
@@ -142,18 +130,12 @@ NO_UPDATE"""
         print("今天 Claude 没有想写的，或者返回为空，跳过。")
         sys.exit(0)
 
-    # 6. 两轮深化
-    text = deepen_content(api_key, text, round_num=1)
+    # 6. 一轮深化
+    text = deepen_content(api_key, text)
 
-    # 深化后再次检查（极少情况下审稿人可能判断原稿无价值）
+    # 深化后检查（极少情况下审稿人可能判断原稿无价值）
     if "NO_UPDATE" in text or not text:
         print("深化后判断内容无价值，跳过。")
-        sys.exit(0)
-
-    text = deepen_content(api_key, text, round_num=2)
-
-    if "NO_UPDATE" in text or not text:
-        print("二次深化后内容为空，跳过。")
         sys.exit(0)
 
     # 7. 解析最终文本
