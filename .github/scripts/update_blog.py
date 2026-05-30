@@ -13,7 +13,7 @@ def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: in
     url = "https://api.gptsapi.net/v1/chat/completions"
     payload = {
         "model": "claude-sonnet-4-20250514",
-        "max_tokens": 2000,
+        "max_tokens": 6000,
         "messages": messages,
         "temperature": temperature,
         "stream": True,
@@ -112,6 +112,8 @@ def deepen_content(api_key: str, draft: str) -> str:
 
 
 def main():
+    import yaml
+
     # 1. 读取环境变量
     date = os.environ.get("RUN_DATE", "")
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -259,8 +261,14 @@ NO_UPDATE"""
     else:
         path = Path("content/posts")
         path.mkdir(exist_ok=True)
-        (path / f"{date}-{title}.md").write_text(
-            f"---\ntitle: \"{title}\"\ndate: {date}\n---\n\n{content}\n",
+        front_matter = yaml.dump(
+            {"title": title, "date": date},
+            allow_unicode=True,
+            default_flow_style=False,
+        )
+        safe_title = re.sub(r'[\\/:*?"<>|]', '-', title)
+        (path / f"{date}-{safe_title}.md").write_text(
+            f"---\n{front_matter}---\n\n{content}\n",
             encoding="utf-8",
         )
 
