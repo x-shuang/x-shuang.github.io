@@ -2,21 +2,19 @@ import os
 import re
 import sys
 import json
-import time
 import urllib.request
 import urllib.error
 from pathlib import Path
 
 
-def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: int = 3) -> str:
-    """流式 API 调用，逐 chunk 接收，彻底避免网关超时。"""
+def call_api(api_key: str, messages: list, temperature: float = 0.7) -> str:
+    """通用 API 调用，返回文本内容。"""
     url = "https://api.gptsapi.net/v1/chat/completions"
     payload = {
         "model": "claude-sonnet-4-20250514",
         "max_tokens": 2000,
         "messages": messages,
         "temperature": temperature,
-        "stream": True,
     }
     headers = {
         "Content-Type": "application/json",
@@ -27,56 +25,28 @@ def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: in
             "Chrome/120.0.0.0 Safari/537.36"
         ),
     }
-
-    for attempt in range(1, retries + 1):
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+        return res_data["choices"][0]["message"]["content"].strip()
+    except urllib.error.HTTPError as e:
+        print(f"\n❌ API 请求触发 HTTP 错误！状态码: {e.code}")
+        print(f"错误原因 (Reason): {e.reason}")
         try:
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers=headers,
-                method="POST",
-            )
-            result = []
-            with urllib.request.urlopen(req, timeout=120) as response:
-                for raw_line in response:
-                    line = raw_line.decode("utf-8").strip()
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                        delta = chunk["choices"][0]["delta"].get("content", "")
-                        if delta:
-                            result.append(delta)
-                    except Exception:
-                        continue
-            return "".join(result).strip()
-
-        except urllib.error.HTTPError as e:
-            print(f"\n⚠️ 第 {attempt} 次请求失败，HTTP {e.code}: {e.reason}")
-            try:
-                print(f"📄 错误详情: {e.read().decode('utf-8')}")
-            except Exception:
-                pass
-            if attempt < retries:
-                wait = 10 * attempt
-                print(f"⏳ {wait} 秒后重试...")
-                time.sleep(wait)
-            else:
-                print("❌ 已达最大重试次数，放弃。")
-                sys.exit(1)
-
-        except Exception as e:
-            print(f"\n⚠️ 第 {attempt} 次请求异常: {e}")
-            if attempt < retries:
-                wait = 10 * attempt
-                print(f"⏳ {wait} 秒后重试...")
-                time.sleep(wait)
-            else:
-                print("❌ 已达最大重试次数，放弃。")
-                sys.exit(1)
+            error_body = e.read().decode("utf-8")
+            print(f"📄 服务器原始错误响应内容:\n{error_body}\n")
+        except Exception as read_err:
+            print(f"无法读取详细的错误响应体: {read_err}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ 其他网络或解析异常: {e}")
+        sys.exit(1)
 
 
 def deepen_content(api_key: str, draft: str) -> str:
