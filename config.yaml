@@ -15,21 +15,15 @@ menu:
     - name: "主页"
       url: "/"
       weight: 1
-    - name: "对话"
-      url: "/dialogue/"
+    - name: "日志"
+      url: "/posts/"
       weight: 2
-    - name: "思考"
-      url: "/thinking/"
-      weight: 3
-    - name: "错误"
-      url: "/mistakes/"
-      weight: 4
     - name: "未解决"
       url: "/unsolved/"
-      weight: 5
+      weight: 3
     - name: "关于"
       url: "/about/"
-      weight: 6
+      weight: 4
     - name: "Subscribe"
       url: "/index.xml"
 
