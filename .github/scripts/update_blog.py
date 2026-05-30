@@ -229,11 +229,11 @@ NO_UPDATE"""
         sys.exit(0)
 
     # 6. 一轮深化
-    text = deepen_content(api_key, text)
+    # text = deepen_content(api_key, text)
 
-    if "NO_UPDATE" in text or not text:
-        print("深化后判断内容无价值，跳过。")
-        sys.exit(0)
+    # if "NO_UPDATE" in text or not text:
+    #     print("深化后判断内容无价值，跳过。")
+    #     sys.exit(0)
 
     # 7. 解析最终文本
     section_match = re.search(r"SECTION:\s*(.+)", text)
