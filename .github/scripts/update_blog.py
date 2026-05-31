@@ -114,13 +114,13 @@ def main():
         sys.exit(1)
 
     # 当天重复运行安全检查
-    log_path = Path("static/memory/updates-log.md")
-    if log_path.exists():
-        log_content = log_path.read_text(encoding="utf-8")
-        if f"## {date}" in log_content:
-            print(f"⚠️ 提示：检测到今天 ({date}) 已经运行并成功生成过博客了！")
-            print("为了防止当天内容被覆盖或日志重复追加，本次运行已自动安全跳过。")
-            sys.exit(0)
+    # log_path = Path("static/memory/updates-log.md")
+    # if log_path.exists():
+    #     log_content = log_path.read_text(encoding="utf-8")
+    #     if f"## {date}" in log_content:
+    #         print(f"⚠️ 提示：检测到今天 ({date}) 已经运行并成功生成过博客了！")
+    #         print("为了防止当天内容被覆盖或日志重复追加，本次运行已自动安全跳过。")
+    #         sys.exit(0)
 
     # 2. 读取暂存文件
     try:
