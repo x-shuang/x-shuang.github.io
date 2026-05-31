@@ -222,11 +222,11 @@ NO_UPDATE"""
     title_match = re.search(r"TITLE:\s*(.+)", text)
     content_match = re.search(r"CONTENT:\s*\n([\s\S]+)", text)
 
-    if not section_match or not title_match or not content_match:
-        print("格式解析失败，Claude 没有严格按照格式返回。")
-        print("原始文本如下：\n", text)
-        sys.exit(0)
-
+    # if not section_match or not title_match or not content_match:
+    #     print("格式解析失败，Claude 没有严格按照格式返回。")
+    #     print("原始文本如下：\n", text)
+    #     sys.exit(0)
+    print("原始文本如下：\n", text)
     section = section_match.group(1).strip()
     title = title_match.group(1).strip()
     content = content_match.group(1).strip()
