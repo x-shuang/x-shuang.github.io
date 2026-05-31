@@ -31,6 +31,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: main             # 👈 强行指定拉取 main 分支的最新代码！
           submodules: recursive
           fetch-depth: 0
       - name: Setup Go
