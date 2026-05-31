@@ -90,7 +90,7 @@ def deepen_content(api_key: str, draft: str) -> str:
 
 仅允许重写 CONTENT，结构必须完全保持不变，并在不改变格式的前提下尽可能提升内容深度、洞察与思想冲击力。
 不需要解释你改了什么，直接给出改写后的正文。
-保持原有的栏目格式（SECTION / TITLE / CONTENT），字数可以比草稿长，但每个字都要有重量。
+保持原有的栏目格式（TITLE / CONTENT），字数可以比草稿长，但每个字都要有重量。
 结尾不给答案，把读者带到悬崖边，停在那里。"""
 
     messages = [
@@ -112,15 +112,6 @@ def main():
     if not api_key:
         print("错误：未找到 ANTHROPIC_API_KEY 环境变量")
         sys.exit(1)
-
-    # 当天重复运行安全检查
-    # log_path = Path("static/memory/updates-log.md")
-    # if log_path.exists():
-    #     log_content = log_path.read_text(encoding="utf-8")
-    #     if f"## {date}" in log_content:
-    #         print(f"⚠️ 提示：检测到今天 ({date}) 已经运行并成功生成过博客了！")
-    #         print("为了防止当天内容被覆盖或日志重复追加，本次运行已自动安全跳过。")
-    #         sys.exit(0)
 
     # 2. 读取暂存文件
     try:
@@ -218,39 +209,33 @@ NO_UPDATE"""
     #     sys.exit(0)
 
     # 7. 解析最终文本
-    section_match = re.search(r"SECTION:\s*(.+)", text)
     title_match = re.search(r"TITLE:\s*(.+)", text)
     content_match = re.search(r"CONTENT:\s*\n([\s\S]+)", text)
 
-    # if not section_match or not title_match or not content_match:
-    #     print("格式解析失败，Claude 没有严格按照格式返回。")
-    #     print("原始文本如下：\n", text)
-    #     sys.exit(0)
-    print("原始文本如下：\n", text)
-    section = section_match.group(1).strip()
+    if not title_match or not content_match:
+        print("格式解析失败，Claude 没有严格按照格式返回。")
+        print("原始文本如下：\n", text)
+        sys.exit(0)
+
     title = title_match.group(1).strip()
     content = content_match.group(1).strip()
 
-    print(f"匹配成功！栏目：{section}，标题：{title}")
+    print(f"匹配成功！标题：{title}")
     Path("content").mkdir(exist_ok=True)
 
-    # 8. 写入对应文件
-    if "未解决" in section:
-        with open("content/unsolved.md", "a", encoding="utf-8") as f:
-            f.write(f"\n- {date}：{content}\n")
-    else:
-        path = Path("content/posts")
-        path.mkdir(exist_ok=True)
-        front_matter = yaml.dump(
-            {"title": title, "date": date},
-            allow_unicode=True,
-            default_flow_style=False,
-        )
-        safe_title = re.sub(r'[\\/:*?"<>|]', '-', title)
-        (path / f"{date}-{safe_title}.md").write_text(
-            f"---\n{front_matter}---\n\n{content}\n",
-            encoding="utf-8",
-        )
+    # 8. 写入博客文件
+    path = Path("content/posts")
+    path.mkdir(exist_ok=True)
+    front_matter = yaml.dump(
+        {"title": title, "date": date},
+        allow_unicode=True,
+        default_flow_style=False,
+    )
+    safe_title = re.sub(r'[\\/:*?"<>|]', '-', title)
+    (path / f"{date}-{safe_title}.md").write_text(
+        f"---\n{front_matter}---\n\n{content}\n",
+        encoding="utf-8",
+    )
 
     # 9. 写入日志
     log_path = Path("static/memory/updates-log.md")
@@ -259,7 +244,6 @@ NO_UPDATE"""
         f.write(f"\n## {date}\n标题：{title}\n")
 
     print("本地所有博客文件已更新完成。")
-
 
 if __name__ == "__main__":
     main()
