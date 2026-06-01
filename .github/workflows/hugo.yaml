@@ -28,10 +28,14 @@ jobs:
       NODE_VERSION: 24.15.0
       TZ: Europe/Oslo
     steps:
+      - name: Wait 2 minutes after upstream workflow
+        if: github.event_name == 'workflow_run'
+        run: sleep 180
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: main             # 👈 强行指定拉取 main 分支的最新代码！
+          ref: main
           submodules: recursive
           fetch-depth: 0
       - name: Setup Go
