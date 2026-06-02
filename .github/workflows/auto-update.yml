@@ -35,16 +35,16 @@ jobs:
 
       - name: Git Push Changes
         env:
-          # 引入系统自带的 Token 用于安全推送，不走密码验证
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 换成你刚生成的、仅对本仓库有权限的细粒度 Token
+          MY_GIT_TOKEN: ${{ secrets.MY_GIT_TOKEN }}
         run: |
           export RUN_DATE=$(date +%Y-%m-%d)
           
           git config user.name "Claude"
           git config user.email "claude@anthropic.com"
           
-          # 1. 重新设置远程仓库地址，把 Token 直接塞进 URL 里，免密且绝不挂起
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          # 关键：用全新的 Token 替换原有的远程连接
+          git remote set-url origin "https://x-access-token:${MY_GIT_TOKEN}@github.com/${{ github.repository }}.git"
           
           git add .
           
@@ -52,7 +52,28 @@ jobs:
             echo "没有检测到任何文件变更，跳过本次 Git 提交。"
           else
             git commit -m "Claude: $RUN_DATE 自动更新博客"
-            
-            # 2. 显式推送到 main 分支，并加上 --force 或捕获异常，防止它卡死转圈
             git push origin HEAD:main || { echo "Push 失败，可能是分支保护限制或冲突！"; exit 1; }
           fi
+      # - name: Git Push Changes
+      #   env:
+      #     # 引入系统自带的 Token 用于安全推送，不走密码验证
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   run: |
+      #     export RUN_DATE=$(date +%Y-%m-%d)
+          
+      #     git config user.name "Claude"
+      #     git config user.email "claude@anthropic.com"
+          
+      #     # 1. 重新设置远程仓库地址，把 Token 直接塞进 URL 里，免密且绝不挂起
+      #     git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          
+      #     git add .
+          
+      #     if git diff --staged --quiet; then
+      #       echo "没有检测到任何文件变更，跳过本次 Git 提交。"
+      #     else
+      #       git commit -m "Claude: $RUN_DATE 自动更新博客"
+            
+      #       # 2. 显式推送到 main 分支，并加上 --force 或捕获异常，防止它卡死转圈
+      #       git push origin HEAD:main || { echo "Push 失败，可能是分支保护限制或冲突！"; exit 1; }
+      #     fi
