@@ -2,7 +2,7 @@ name: Claude Auto Update Blog
 
 on:
   schedule:
-    - cron: '29 21 * * *'  # 每天北京时间05:29触发
+    - cron: '6 19 * * *'  # 每天北京时间03:06触发
   workflow_dispatch:
 
 permissions:
