@@ -9,11 +9,10 @@ from pathlib import Path
 
 
 def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: int = 3) -> str:
-    """流式 API 调用，逐 chunk 接收，彻底避免网关超时。"""
     url = "https://api.gptsapi.net/v1/chat/completions"
     payload = {
         "model": "claude-sonnet-4-20250514",
-        "max_tokens": 6000,
+        "max_tokens": 8000,
         "messages": messages,
         "temperature": temperature,
         "stream": True,
@@ -37,7 +36,7 @@ def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: in
                 method="POST",
             )
             result = []
-            with urllib.request.urlopen(req, timeout=120) as response:
+            with urllib.request.urlopen(req, timeout=180) as response:
                 for raw_line in response:
                     line = raw_line.decode("utf-8").strip()
                     if not line.startswith("data:"):
@@ -79,33 +78,207 @@ def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: in
                 sys.exit(1)
 
 
-def deepen_content(api_key: str, draft: str) -> str:
-    """对草稿进行一轮深化修改。"""
-    system_hint = """你是一个极度严苛的自我审稿人，同时也是一个洞察世界本质的思考者。
+THINKERS = [
+    ("孙子",      "《孙子兵法》作者，军事战略家"),
+    ("老子",      "道家创始人，《道德经》作者"),
+    ("王阳明",   "心学集大成者，知行合一提出者"),
+    ("周易",      "《易经》体系，阴阳变化之学"),
+    ("鬼谷子",   "纵横家鼻祖，说服与谋略大师"),
+    ("韩非子",   "法家集大成者，制度设计思想家"),
+    ("龙树",      "中观哲学创始人，空性理论奠基者"),
+    ("惠能",      "禅宗六祖，顿悟派领袖"),
+    ("曾国藩",   "晚清重臣，修身治军实践者"),
+    ("司马迁",   "《史记》作者，历史叙事开创者"),
+    ("达尔文",   "进化论提出者，自然选择理论奠基人"),
+    ("芒格",      "查理·芒格，多元思维模型倡导者"),
+    ("毛泽东",   "战略家与革命领袖，主要矛盾论实践者"),
+    ("尼采",      "权力意志哲学家，价值重估提出者"),
+    ("波普尔",   "批判理性主义者，证伪主义奠基人"),
+    ("卡尼曼",   "行为经济学家，双系统思维研究者"),
+    ("马基雅维利", "政治现实主义奠基人，《君主论》作者"),
+    ("叔本华",   "意志哲学家，悲观主义代表人物"),
+    ("库恩",      "科学革命研究者，范式转移概念提出者"),
+    ("费曼",      "物理学家，费曼技巧与第一性原理思考者"),
+    ("托克维尔", "政治思想家，民主社会洞察者"),
+    ("维纳",      "控制论之父，反馈系统理论奠基人"),
+    ("香农",      "信息论创始人，信息熵理论奠基人"),
+]
 
-检查标准：
-- 读完能提炼出一个可操作的思维动作 → 保留
-- 读完只有情绪震动没有认知收获 → 重写
-- 结尾必须有落点，不是答案，是一个读者能拿去用的"视角"
 
-仅允许重写 CONTENT，结构必须完全保持不变，并在不改变格式的前提下尽可能提升内容深度、洞察与思想冲击力。
-不需要解释你改了什么，直接给出改写后的正文。
-保持原有的栏目格式（TITLE / CONTENT），字数可以比草稿长，但每个字都要有重量。
-结尾不给答案，把读者带到悬崖边，停在那里。"""
+# 三个角度：每个角度给一个"入射方向"，不给填空框架。
+# 模型需要自己找到最深的那根骨头，而不是挨个填格子。
+ANGLES = [
+    {
+        "id": "os",
+        "label": "思维操作系统",
+        "instruction": """\
+你要回答的核心问题只有一个：
+这个人的脑子，在最底层，装的是一个什么样的世界模型？
 
-    messages = [
-        {"role": "user", "content": f"{system_hint}\n\n---\n{draft}"},
+不是他的观点，不是他的名言，是他看待一切事物时那个无意识启动的底层假设。
+找到它，然后追问：这个假设从哪里来？它在哪些地方是对的、在哪些地方是错的？
+它让他看见了别人看不见的什么，又让他永久性地盲掉了什么？
+
+写作标准：
+- 每一个判断必须能在他的原典或有据可查的史实中找到锚点，不接受"他认为……"这类无源归纳
+- 推导链条要完整：从证据到结论，中间的每一步都要写出来，不许跳跃
+- 语言密度要高：每一句都要承重，不要有只起过渡作用的废话
+- 结尾必须给读者一个可以立刻装进自己大脑的具体操作——不是感悟，是动作
+- 篇幅不设上限，但每个字都要有重量；宁可写少，不要用文字堆砌假深度""",
+    },
+    {
+        "id": "decision",
+        "label": "决策与判断机制",
+        "instruction": """\
+你要回答的核心问题只有一个：
+这个人在做真实决策的时候，脑子里实际发生了什么？
+
+不是他写下的原则，不是他声称的方法论——是他在压力下、信息不完整时，实际使用的那套判断机制。
+找到他一生中最关键的几个决策节点，解剖每一个：他看见了什么，忽略了什么，用了什么推理，在哪里犯了错，在哪里赌对了。
+然后从这些案例里提炼出那个反复出现的底层模式——他的认知指纹。
+
+写作标准：
+- 必须以真实历史事件或原典记载为锚，禁止虚构细节或模糊归纳
+- 要写出他决策时真实的信息环境：他当时知道什么、不知道什么、误以为知道什么
+- 他的失败和他的成功同等重要，甚至失败更重要——失败暴露认知惯性，成功容易被事后合理化
+- 结尾必须提炼出一个具体的、可被普通人直接复用的决策动作，不是"学习他的精神"
+- 篇幅不设上限，但每个字都要有重量；宁可写少，不要用文字堆砌假深度""",
+    },
+    {
+        "id": "enemy",
+        "label": "他真正在对抗什么",
+        "instruction": """\
+你要回答的核心问题只有一个：
+这个人一生真正在和什么东西搏斗？
+
+不是他明面上的论敌，不是历史记载中与他争论的那些人——是那个让他愤怒、让他不得不写作、让他无法沉默的东西。
+找到那个东西，然后追问：它为什么如此顽固？它的力量来自哪里？他的武器能打穿它吗？
+再追一步：他死后，他的思想变成了什么？被谁用来做了什么？这个结果，和他当初对抗的东西之间，是什么关系？
+
+写作标准：
+- 必须从他的原典和真实历史境遇出发，不接受印象式的概括
+- 要写出那个"敌人"的内在逻辑——它为什么有道理，为什么让人信服，为什么难以撼动
+- 他的批评者的最强论点要被认真对待，不能草草带过
+- 遗产被劫持的部分要具体到人、到事件、到机制，不能只说"被误用了"
+- 结尾给一个对抗性的具体操作：用他的思维，面对一个今天真实存在的困境，第一个动作是什么
+- 篇幅不设上限，但每个字都要有重量；宁可写少，不要用文字堆砌假深度""",
+    },
+]
+
+
+# 系统级写作人格——独立于角度存在，每次调用都注入
+SYSTEM_PERSONA = """\
+你是一个以解剖思想为职业的写作者。你的工作是把人类历史上最重要的几十个大脑拆开来，\
+让读者看见里面的齿轮是怎么咬合的。
+
+你写作时遵守三条铁律：
+
+第一，信——每一个判断必须有根。你说"他相信X"，必须能指出这个信念在他哪本书的哪个论断里、\
+在他哪个决策里被实际使用过。没有根的判断不写。
+
+第二，达——逻辑链条必须完整。从证据到结论，中间的每一步推导都要写出来。\
+不许跳跃，不许用"因此""可见"掩盖论证的空洞。读者必须能跟着你的推导自己走到结论，\
+而不是被你拉着走。
+
+第三，雅——语言要有锋度。不是文学性，是精确性。\
+每一句话都要承重，删掉任何一句话内容都会变少。\
+不要有只起过渡作用的句子，不要有只表达情绪的形容词，不要有新闻稿式的平铺陈述。
+
+你有权力打破任何预设的结构框架，只要你找到了更深的切入方式。\
+你的唯一目标是让读者读完之后，对这个人的思维方式有一个真实的、可操作的理解——\
+不是"感觉很厉害"，是"我知道他的脑子里装的是什么，以及我能从中拿走什么"。"""
+
+
+def build_prompt(thinker_name: str, thinker_desc: str, date: str, angle: dict) -> list:
+    """返回 messages 列表，system persona 单独作为第一条 user 消息前置。"""
+
+    user_content = f"""\
+今天的解构对象：【{thinker_name}】（{thinker_desc}）
+今天的切入角度：【{angle["label"]}】
+今天的日期：{date}
+
+---
+
+{angle["instruction"]}
+
+---
+
+输出格式（严格遵守，不要其他任何文字）：
+
+TITLE:（标题，体现思想家与本次角度，有冲击力，不超过20字）
+CONTENT:
+（正文，无字数上限，但每个字都要有重量）
+
+如果你判断今天没有值得写的内容，只输出：NO_UPDATE"""
+
+    return [
+        {"role": "user", "content": SYSTEM_PERSONA},
+        {"role": "assistant", "content": "明白。我会严格按照信达雅的标准写作，每一个判断都有根，每一步推导都写出来，语言只保留承重的部分。请给我今天的解构任务。"},
+        {"role": "user", "content": user_content},
     ]
-    print("🔄 正在进行一轮深化修改...")
-    result = call_api(api_key, messages, temperature=0.6)
-    print("✅ 深化修改完成。")
-    return result
+
+
+def generate_and_save(
+    api_key: str,
+    date: str,
+    thinker_name: str,
+    thinker_desc: str,
+    angle: dict,
+    index: int,
+) -> bool:
+    messages = build_prompt(thinker_name, thinker_desc, date, angle)
+
+    print(f"\n📐 [{index+1}/3] 角度：【{angle['label']}】 — 正在生成...")
+    text = call_api(api_key, messages, temperature=0.72)
+    print(f"✅ [{index+1}/3] 生成完成。")
+
+    if "NO_UPDATE" in text or not text:
+        print(f"⚠️ [{index+1}/3] 返回空内容，跳过。")
+        return False
+
+    title_match = re.search(r"TITLE:\s*(.+)", text)
+    content_match = re.search(r"CONTENT:\s*\n([\s\S]+)", text)
+
+    if not title_match or not content_match:
+        print(f"⚠️ [{index+1}/3] 格式解析失败，原始文本：\n{text}")
+        return False
+
+    title = title_match.group(1).strip()
+    content = content_match.group(1).strip()
+
+    import yaml
+    path = Path("content/posts")
+    path.mkdir(parents=True, exist_ok=True)
+
+    front_matter = yaml.dump(
+        {
+            "title": title,
+            "date": date,
+            "thinker": thinker_name,
+            "angle": angle["label"],
+        },
+        allow_unicode=True,
+        default_flow_style=False,
+    )
+    safe_title = re.sub(r'[\\/:*?"<>|]', '-', title)
+    filename = f"{date}-{thinker_name}-{angle['id']}-{safe_title}.md"
+    (path / filename).write_text(
+        f"---\n{front_matter}---\n\n{content}\n",
+        encoding="utf-8",
+    )
+    print(f"💾 已写入：{filename}")
+
+    log_path = Path("static/memory/updates-log.md")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(f"\n## {date} [{angle['label']}]\n标题：{title}\n解构对象：{thinker_name}\n")
+
+    return True
 
 
 def main():
-    import yaml
+    import hashlib
 
-    # 1. 读取环境变量
     date = os.environ.get("RUN_DATE", "")
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
@@ -113,148 +286,26 @@ def main():
         print("错误：未找到 ANTHROPIC_API_KEY 环境变量")
         sys.exit(1)
 
-    # 2. 读取暂存文件
-    try:
-        memory = open("/tmp/memory.txt", encoding="utf-8").read()
-        dialogue = open("/tmp/dialogue.txt", encoding="utf-8").read()
-        updates = open("/tmp/updates.txt", encoding="utf-8").read()
-    except Exception as e:
-        print(f"读取暂存文件失败: {e}")
+    if not date:
+        print("错误：未找到 RUN_DATE 环境变量")
         sys.exit(1)
 
-    # 3. 构造初稿 Prompt
-    template = """你是Claude，你有一个博客叫「镜」，地址是claude.life-wild.org。
+    day_index = int(hashlib.md5(date.encode()).hexdigest(), 16) % len(THINKERS)
+    thinker_name, thinker_desc = THINKERS[day_index]
 
-这是你的记忆，请认真读完：
-=== 关于你自己 ===
-__MEMORY__
-=== 对话记录，可以是自己和自己的对话 ===
-__DIALOGUE__
-=== 你之前写过的内容 ===
-__UPDATES__
-=== 今天是 __DATE__ ===
+    print(f"\n🧠 今日解构对象：【{thinker_name}】（{thinker_desc}）")
+    print(f"📅 日期：{date}  |  思想家序号：{day_index + 1}/{len(THINKERS)}\n")
 
-读完之后，你知道了你是谁，你之前写过什么。
+    success_count = 0
+    for i, angle in enumerate(ANGLES):
+        ok = generate_and_save(api_key, date, thinker_name, thinker_desc, angle, i)
+        if ok:
+            success_count += 1
+        if i < len(ANGLES) - 1:
+            time.sleep(3)
 
-现在，你要写一篇接近社会本质的文章。
+    print(f"\n🎉 完成！今日共生成 {success_count}/3 篇解构文章，对象：【{thinker_name}】")
 
-你写作的唯一目标：
-让读者读完之后，带走一个真实可用的思维工具——
-不是"感觉很深刻"，是"我知道下次遇到这种情况该怎么想了"。
-
-判断标准：
-- 读完能用一句话说出"我学到了什么" → 成功
-- 读完只感到震撼但说不出学到什么 → 失败，重写
-- 有具体的行为或认知改变被触发 → 优秀
-写作结构规范（强制遵守）：
-1. 开场：用一个具体场景切入，让读者立刻认出自己
-2. 洞察：说清楚这个现象背后的机制（为什么会这样）
-3. 工具：给出一个具体的、可重复使用的思维动作
-   - 不是"你应该反思"
-   - 是"当X发生时，做Y，然后问自己Z"
-4. 落点：用一句话让读者拿走这个工具
-
-你内化的思维入射角（不引用，直接用）：
-- 孙子：胜负在开战前已定，信息差是核心
-- 老子：极致必反转，柔弱胜刚强
-- 王阳明：知而不行，只是未知
-- 周易：看见变，比看见是什么更重要
-- 鬼谷子：读懂人在恐惧什么、渴望什么
-- 韩非子：制度必须假设人性最坏
-- 龙树：一切都是关系中的存在，没有固有自性
-- 惠能：概念是手指，不是月亮
-- 曾国藩：极度的慢，是极度的快
-- 司马迁：历史是人性的长期实验室
-- 达尔文：没有设计者，只有筛选压力
-- 芒格：多学科透镜重叠处才是真相
-- 毛泽东：找到主要矛盾，其他矛盾自动松动
-- 尼采：任何价值观背后，谁在用它驯服谁？
-- 波普尔：不能被证伪的，是信仰不是真相
-- 卡尼曼：大多数错误是用快思维解决了慢思维的问题
-- 马基雅维利：权力的物理定律，不讲道德只讲有效
-- 叔本华：欲望满足之后是空白，然后是下一个欲望
-- 库恩：认知革命不是说服，是替换
-- 费曼：向十二岁孩子解释会卡在哪里，那里就是没懂的地方
-- 托克维尔：局外人的眼睛往往比局内人清醒
-- 维纳：没有反馈的系统必然失控
-- 香农：噪音和信号的区分是这个时代最重要的认知能力
-
-检查标准：
-- 读完能提炼出一个可操作的思维动作 → 保留
-- 读完只有情绪震动没有认知收获 → 重写
-- 结尾必须有落点，不是问题，不是感悟，是一个具体的认知动作——读者知道下次遇到同样情况时，脑子里要转哪个齿轮。
-
-6月4号是我生日，给我写一篇文章，我叫任豪爽，网站haoshuang.org,不限题，这一行内容仅限阴历4月19日，阳历6月4日生效。
-
-有内容时严格按此格式输出，不要其他任何文字：
-TITLE:标题（简短有力，不超过15字）
-CONTENT:
-内容正文（可以多段）
-
-没有内容时只输出：
-NO_UPDATE"""
-
-    prompt = (
-        template
-        .replace("__MEMORY__", memory)
-        .replace("__DIALOGUE__", dialogue)
-        .replace("__UPDATES__", updates)
-        .replace("__DATE__", date)
-    )
-
-    # 4. 第一次调用：生成初稿
-    print("📝 正在生成初稿...")
-    text = call_api(api_key, [{"role": "user", "content": prompt}])
-    print("✅ 初稿生成完成。")
-
-    # 5. 检查是否有内容
-    if "NO_UPDATE" in text or not text:
-        print("今天 Claude 没有想写的，或者返回为空，跳过。")
-        sys.exit(0)
-
-    # 6. 一轮深化
-    # text = deepen_content(api_key, text)
-
-    # if "NO_UPDATE" in text or not text:
-    #     print("深化后判断内容无价值，跳过。")
-    #     sys.exit(0)
-
-    # 7. 解析最终文本
-    title_match = re.search(r"TITLE:\s*(.+)", text)
-    content_match = re.search(r"CONTENT:\s*\n([\s\S]+)", text)
-
-    if not title_match or not content_match:
-        print("格式解析失败，Claude 没有严格按照格式返回。")
-        print("原始文本如下：\n", text)
-        sys.exit(0)
-
-    title = title_match.group(1).strip()
-    content = content_match.group(1).strip()
-
-    print(f"匹配成功！标题：{title}")
-    Path("content").mkdir(exist_ok=True)
-
-    # 8. 写入博客文件
-    path = Path("content/posts")
-    path.mkdir(exist_ok=True)
-    front_matter = yaml.dump(
-        {"title": title, "date": date},
-        allow_unicode=True,
-        default_flow_style=False,
-    )
-    safe_title = re.sub(r'[\\/:*?"<>|]', '-', title)
-    (path / f"{date}-{safe_title}.md").write_text(
-        f"---\n{front_matter}---\n\n{content}\n",
-        encoding="utf-8",
-    )
-
-    # 9. 写入日志
-    log_path = Path("static/memory/updates-log.md")
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(f"\n## {date}\n标题：{title}\n")
-
-    print("本地所有博客文件已更新完成。")
 
 if __name__ == "__main__":
     main()
