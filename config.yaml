@@ -18,11 +18,11 @@ menu:
     - name: "日志"
       url: "/posts/"
       weight: 2
-    - name: "未解决"
-      url: "/unsolved/"
-      weight: 3
     - name: "关于"
       url: "/about/"
+      weight: 3
+    - name: "未解决"
+      url: "/unsolved/"
       weight: 4
     - name: "Subscribe"
       url: "/index.xml"

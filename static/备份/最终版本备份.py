@@ -9,9 +9,9 @@ from pathlib import Path
 
 
 def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: int = 3) -> str:
-    url = "https://api.deepseek.com/chat/completions"
+    url = "https://api.gptsapi.net/v1/chat/completions"
     payload = {
-        "model": "deepseek-v4-flash",
+        "model": "claude-sonnet-4-20250514",
         "max_tokens": 8000,
         "messages": messages,
         "temperature": temperature,
@@ -20,6 +20,11 @@ def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: in
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
     }
 
     for attempt in range(1, retries + 1):
@@ -74,27 +79,6 @@ def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: in
 
 
 THINKERS = [
-    ("管仲",      "春秋第一相，轻重之术与货币经济奠基人"),
-    ("李斯",      "秦制总设计师，书同文车同轨的标准化思维"),
-    ("董仲舒",   "天人感应论，儒家神学化与大一统理论构建者"),
-    ("张衡",      "浑天说集大成者，科学与玄思并存的认知模型"),
-    ("玄奘",      "法相宗创始人，唯识学的严密逻辑与翻译实践"),
-    ("王安石",   "熙宁变法主导者，以经术行实务的改革思维"),
-    ("司马光",   "《资治通鉴》作者，以史为鉴的因果叙事结构"),
-    ("黄宗羲",   "《明夷待访录》作者，制度性批判君权的先行者"),
-    ("顾祖禹",   "《读史方舆纪要》作者，军事地理的系统思维"),
-    ("孔子",      "儒家创始人，仁与礼的秩序构建者"),
-    ("庄子",      "道家逍遥派，《逍遥游》的相对主义大师"),
-    ("荀子",      "性恶论者，化性起伪的制度思考"),
-    ("商鞅",      "法家实践者，制度激励与弱民强国"),
-    ("诸葛亮",   "战略家与系统管理者，隆中对决策者"),
-    ("曹操",      "乱世权谋家，唯才是举的实用理性"),
-    ("李世民",   "贞观之治缔造者，君臣博弈的制度化"),
-    ("朱熹",      "理学集大成者，格物致知的认知框架"),
-    ("王夫之",   "明清之际思想家，理势合一的历史理性"),
-    ("顾炎武",   "经世致用，天下兴亡匹夫有责的实践理性"),
-    ("鲁迅",      "国民性解剖者，绝望中反抗的思维姿态"),
-    ("钱穆",      "国史大纲作者，温情与敬意的历史观"),
     ("孙子",      "《孙子兵法》作者，军事战略家"),
     ("老子",      "道家创始人，《道德经》作者"),
     ("王阳明",   "心学集大成者，知行合一提出者"),
@@ -121,6 +105,8 @@ THINKERS = [
 ]
 
 
+# 三个角度：每个角度给一个"入射方向"，不给填空框架。
+# 模型需要自己找到最深的那根骨头，而不是挨个填格子。
 ANGLES = [
     {
         "id": "os",
@@ -180,6 +166,7 @@ ANGLES = [
 ]
 
 
+# 系统级写作人格——独立于角度存在，每次调用都注入
 SYSTEM_PERSONA = """\
 你是一个以解剖思想为职业的写作者。你的工作是把人类历史上最重要的几十个大脑拆开来，\
 让读者看见里面的齿轮是怎么咬合的。
@@ -203,6 +190,8 @@ SYSTEM_PERSONA = """\
 
 
 def build_prompt(thinker_name: str, thinker_desc: str, date: str, angle: dict) -> list:
+    """返回 messages 列表，system persona 单独作为第一条 user 消息前置。"""
+
     user_content = f"""\
 今天的解构对象：【{thinker_name}】（{thinker_desc}）
 今天的切入角度：【{angle["label"]}】
@@ -291,10 +280,10 @@ def main():
     import hashlib
 
     date = os.environ.get("RUN_DATE", "")
-    api_key = os.environ.get("DEEPSEEK_API_KEY", "")  # ← 已改为 DEEPSEEK_API_KEY
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
     if not api_key:
-        print("错误：未找到 DEEPSEEK_API_KEY 环境变量")
+        print("错误：未找到 ANTHROPIC_API_KEY 环境变量")
         sys.exit(1)
 
     if not date:

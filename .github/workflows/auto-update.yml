@@ -17,9 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Claude Update Script
+      - name: Run Deepseek Update Script
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           export RUN_DATE=$(date +%Y-%m-%d)
           python3 .github/scripts/update_blog.py
