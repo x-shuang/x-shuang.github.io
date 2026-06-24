@@ -8,14 +8,15 @@ import urllib.error
 from pathlib import Path
 
 
-def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: int = 3) -> str:
+def call_api(api_key: str, messages: list, retries: int = 3) -> str:
     url = "https://api.deepseek.com/chat/completions"
     payload = {
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-v4-pro",
         "max_tokens": 8000,
         "messages": messages,
-        "temperature": temperature,
         "stream": True,
+        "reasoning_effort": "max",          # 最强思考强度
+        "thinking": {"type": "enabled"},    # 开启思考模式
     }
     headers = {
         "Content-Type": "application/json",
@@ -31,7 +32,7 @@ def call_api(api_key: str, messages: list, temperature: float = 0.7, retries: in
                 method="POST",
             )
             result = []
-            with urllib.request.urlopen(req, timeout=180) as response:
+            with urllib.request.urlopen(req, timeout=620) as response:
                 for raw_line in response:
                     line = raw_line.decode("utf-8").strip()
                     if not line.startswith("data:"):
