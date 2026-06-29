@@ -227,6 +227,7 @@ def build_prompt(thinker_name: str, thinker_desc: str, date: str, angle: dict) -
 TITLE:（标题，体现思想家与本次角度，有冲击力，不超过20字）
 CONTENT:
 （正文，无字数上限，但每个字都要有重量）
+"""  
 
     return [
         {"role": "user", "content": SYSTEM_PERSONA},
