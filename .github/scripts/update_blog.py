@@ -14,8 +14,10 @@ def call_api(api_key: str, messages: list, retries: int = 3) -> str:
         "model": "deepseek-v4-pro",
         "max_tokens": 8000,
         "messages": messages,
+        "temperature": 0.72,  # 直接在这里写死固定值，或者删掉这行（如果不需要设置）
         "stream": True,
         "reasoning_effort": "max",          # 最强思考强度
+        "thinking": {"type": "enabled"},    # 开启思考模式
     }
     headers = {
         "Content-Type": "application/json",
@@ -240,7 +242,7 @@ def generate_and_save(
     messages = build_prompt(thinker_name, thinker_desc, date, angle)
 
     print(f"\n📐 [{index+1}/3] 角度：【{angle['label']}】 — 正在生成...")
-    text = call_api(api_key, messages, temperature=0.72)
+    text = call_api(api_key, messages)
     print(f"✅ [{index+1}/3] 生成完成。")
 
     if "NO_UPDATE" in text or not text:
