@@ -250,8 +250,13 @@ def generate_and_save(
     text = call_api(api_key, messages)
     print(f"✅ [{index+1}/3] 生成完成。")
 
-    if "NO_UPDATE" in text or not text:
-        print(f"⚠️ [{index+1}/3] 返回空内容，跳过。")
+    if not text:
+        print(f"⚠️ [{index+1}/3] 返回完全为空，可能是模型在思考阶段结束后面临超时，或未输出实际 content。")
+        return False
+        
+    if "NO_UPDATE" in text:
+        print(f"⚠️ [{index+1}/3] 文本中包含了 'NO_UPDATE' 关键字被拦截！")
+        print(f"📄 拦截的原始文本前 200 字为：\n{text[:200]}") # 打印前两百字看模型说了啥
         return False
 
     title_match = re.search(r"TITLE:\s*(.+)", text)
