@@ -14,10 +14,10 @@ def call_api(api_key: str, messages: list, retries: int = 3) -> str:
         "model": "deepseek-v4-pro",
         "max_tokens": 8000,
         "messages": messages,
-        "temperature": 0.72,  # 直接在这里写死固定值，或者删掉这行（如果不需要设置）
+        "temperature": 0.72,
         "stream": True,
-        "reasoning_effort": "max",          # 最强思考强度
-        "thinking": {"type": "enabled"},    # 开启思考模式
+        "reasoning_effort": "max",
+        "thinking": {"type": "enabled"},
     }
     headers = {
         "Content-Type": "application/json",
@@ -33,7 +33,9 @@ def call_api(api_key: str, messages: list, retries: int = 3) -> str:
                 method="POST",
             )
             result = []
-            with urllib.request.urlopen(req, timeout=620) as response:
+            
+            # 这里的 timeout 是指“没有收到任何新数据的最长等待时间”
+            with urllib.request.urlopen(req, timeout=1200) as response:
                 for raw_line in response:
                     line = raw_line.decode("utf-8").strip()
                     if not line.startswith("data:"):
@@ -46,8 +48,12 @@ def call_api(api_key: str, messages: list, retries: int = 3) -> str:
                         delta = chunk["choices"][0]["delta"].get("content", "")
                         if delta:
                             result.append(delta)
+                            # 【核心修改】实时在控制台打印出来的字，flush=True 保证不缓存立刻显示
+                            print(delta, end="", flush=True) 
                     except Exception:
                         continue
+            
+            print("\n") # 篇章结束换行
             return "".join(result).strip()
 
         except urllib.error.HTTPError as e:
@@ -221,8 +227,6 @@ def build_prompt(thinker_name: str, thinker_desc: str, date: str, angle: dict) -
 TITLE:（标题，体现思想家与本次角度，有冲击力，不超过20字）
 CONTENT:
 （正文，无字数上限，但每个字都要有重量）
-
-如果你判断今天没有值得写的内容，只输出：NO_UPDATE"""
 
     return [
         {"role": "user", "content": SYSTEM_PERSONA},
