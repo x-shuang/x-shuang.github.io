@@ -16,7 +16,6 @@ def call_api(api_key: str, messages: list, retries: int = 3) -> str:
         "messages": messages,
         "stream": True,
         "reasoning_effort": "max",          # 最强思考强度
-        "thinking": {"type": "enabled"},    # 开启思考模式
     }
     headers = {
         "Content-Type": "application/json",
